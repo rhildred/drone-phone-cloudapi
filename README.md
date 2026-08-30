@@ -7,4 +7,4 @@ TLDR;
 2. Use `/opt/ansible_env/bin/ansible-pull -U https://github.com/rhildred/drone-phone-cloudapi.git` to pull caddy, caddy-ask-api, mosquitto, and mediamtx.
 3. Edit the Caddyfile and the domains.json file in /etc/caddy so that you can bring up your code-server instance from step 1.
 
-At this point this is a terminal with code-server. There are still configuration tasks for mosquitto and mediamtx but these can be done when setting up the actual workings of the system.
+At this point this is a terminal with code-server. There are still configuration tasks for mosquitto and mediamtx but these can be done when setting up the actual workings of the system. Before setting up the workings of the system, you may want to disable sshd. Have fun!
