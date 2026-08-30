@@ -1,0 +1,59 @@
+---
+- name: Configure localhost with Caddy and Mosquitto
+  hosts: localhost
+  connection: local
+  become: true
+
+  tasks:
+    - name: Ensure prerequisite packages are installed
+      ansible.builtin.package:
+        name:
+          - curl
+          - gpg
+          - software-properties-common
+        state: present
+
+    # --- CADDY INSTALLATION & SERVICE ---
+    - name: Add Caddy GPG key
+      ansible.builtin.apt_key:
+        url: https://dl.cloudsmith.io/public/caddy/stable/gpg/gpg.x86_64.gpg
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Add Caddy repository
+      ansible.builtin.apt_repository:
+        repo: deb https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main
+        state: present
+        filename: caddy-stable
+      when: ansible_os_family == "Debian"
+
+    - name: Install Caddy and Mosquitto (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - caddy
+          - mosquitto
+          - mosquitto-clients
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Install Caddy and Mosquitto (RedHat/CentOS)
+      ansible.builtin.dnf:
+        name:
+          - caddy
+          - mosquitto
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    # --- SYSTEMD MANAGEMENT ---
+    - name: Enable and start Caddy service
+      ansible.builtin.systemd:
+        name: caddy
+        enabled: true
+        state: started
+
+    - name: Enable and start Mosquitto service
+      ansible.builtin.systemd:
+        name: mosquitto
+        enabled: true
+        state: started
