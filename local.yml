@@ -19,17 +19,6 @@
         state: present
         update_cache: true
 
-    - name: Install required dependency packages
-      ansible.builtin.apt:
-        name:
-          - debian-keyring
-          - debian-archive-keyring
-          - apt-transport-https
-          - curl
-          - ufw
-        state: present
-        update_cache: true
-
     - name: Download and dearmor Caddy GPG key safely for both Debian and Ubuntu
       ansible.builtin.shell: |
         set -o pipefail
@@ -52,6 +41,41 @@
         state: present
         update_cache: true
       become: true
+    # 5. Prepare the system path for the MediaMTX binary execution
+    - name: Ensure MediaMTX directory exists
+      ansible.builtin.file:
+        path: /opt/mediamtx
+        state: directory
+        mode: '0755'
+
+    # 6. download mediamtx
+    - name: Download and install the latest MediaMTX binary safely
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -sL https://github.com/bluenviron/mediamtx/releases/download/v1.20.1/mediamtx_v1.20.1_linux_amd64.tar.gz | tar -xz -C /opt/mediamtx
+      args:
+        executable: /bin/bash
+        creates: /opt/mediamtx/mediamtx
+
+    # 7. Write the systemd unit file for MediaMTX tracking
+    - name: Create Systemd service unit for MediaMTX
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/mediamtx.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=MediaMTX Live Video Streaming Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/mediamtx
+          ExecStart=/opt/mediamtx/mediamtx
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
 
     # 8. Manage services with systemctl
     - name: Ensure Caddy and Mosquitto are enabled and running via systemctl
