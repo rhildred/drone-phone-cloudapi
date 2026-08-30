@@ -82,6 +82,52 @@
       ansible.builtin.systemd:
         name: "{{ item }}"
         enabled: true
+
+    - name: Copy gateway-services folder to /opt
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/gateway-services"
+        dest: /opt/
+        owner: "{{ original_user }}"
+        group: "{{ original_user }}"
+        mode: 'u=rwX,g=rX,o=rX' # Sets folders to 755 and files to 644 automatically
+      become: true
+
+    - name: Initialize venv and install Python requirements
+      ansible.builtin.pip:
+        requirements: /opt/gateway-services/requirements.txt
+        virtualenv: /opt/gateway-services/venv
+        virtualenv_command: python -m venv
+
+    - name: Create caddy-ask-api service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/caddy-ask-api.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=FastAPI Caddy On-Demand TLS Regular Expression Evaluator
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=root
+          Group=root
+          WorkingDirectory=/opt/gateway-services
+          # Call the uvicorn binary directly from the shared venv
+          ExecStart=/opt/gateway-services/venv/bin/uvicorn caddy_ask_api:app --host 127.0.0.1 --port 9000
+          Restart=always
+          RestartSec=3
+
+          [Install]
+          WantedBy=multi-user.target
+      become: true          
+
+    - name: Ensure caddy-ask-api is enabled and active
+      ansible.builtin.systemd:
+        name: caddy-ask-api
+        state: started
+        enabled: true
+      become: true
+        
         state: started
       loop:
         - caddy
