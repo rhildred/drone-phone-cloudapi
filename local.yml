@@ -92,7 +92,7 @@
       ansible.builtin.pip:
         requirements: /opt/gateway-services/requirements.txt
         virtualenv: /opt/gateway-services/venv
-        virtualenv_command: python -m venv
+        virtualenv_command: python3 -m venv
 
     - name: Create caddy-ask-api service
       ansible.builtin.copy:
