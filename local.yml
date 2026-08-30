@@ -77,12 +77,6 @@
           [Install]
           WantedBy=multi-user.target
 
-    # 8. Manage services with systemctl
-    - name: Ensure Caddy and Mosquitto are enabled and running via systemctl
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        enabled: true
-
     - name: Copy gateway-services folder to /opt
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/gateway-services"
@@ -128,6 +122,11 @@
         enabled: true
       become: true
         
+    # 8. Manage services with systemctl
+    - name: Ensure Caddy and Mosquitto are enabled and running via systemctl
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
         state: started
       loop:
         - caddy
