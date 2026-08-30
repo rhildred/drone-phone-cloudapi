@@ -14,56 +14,44 @@
           - apt-transport-https
           - curl
           - gnupg
-        state: present
-        update_cache: true
-
-    # CRITICAL CLEANUP: Wipes the broken text key so gpg can write a clean binary file
-    - name: Clean up broken text-based Caddy keyring
-      ansible.builtin.file:
-        path: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-        state: absent
-
-    # 2. Downloads the raw armored text key to a temp directory
-    - name: Download raw Caddy text key
-      ansible.builtin.get_url:
-        url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
-        dest: /tmp/caddy-armored.key
-        mode: '0644'
-
-    # 3. Matches: gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    - name: Dearmor Caddy key to proper binary format
-      ansible.builtin.command:
-        cmd: gpg --dearmor -y -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/caddy-armored.key
-      creates: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-
-    # 4. Enforces permissions matching: sudo chmod o+r
-    - name: Ensure correct permissions on the binary keyring file
-      ansible.builtin.file:
-        path: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-        mode: '0644'
-
-    # 5. Matches: curl ... debian.deb.txt | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-    - name: Fetch and write official Caddy repository source file
-      ansible.builtin.get_url:
-        url: https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt
-        dest: /etc/apt/sources.list.d/caddy-stable.list
-        mode: '0644'
-
-    # 6. Matches: sudo apt update && sudo apt install caddy mosquitto mosquitto-clients
-    - name: Update apt cache and install applications
-      ansible.builtin.apt:
-        name:
-          - caddy
           - mosquitto
           - mosquitto-clients
         state: present
         update_cache: true
 
-    # 7. Post-install cleanup of the temporary download
-    - name: Clean up temporary armored key file
-      ansible.builtin.file:
-        path: /tmp/caddy-armored.key
-        state: absent
+    - name: Install required dependency packages
+      ansible.builtin.apt:
+        name:
+          - debian-keyring
+          - debian-archive-keyring
+          - apt-transport-https
+          - curl
+          - ufw
+        state: present
+        update_cache: true
+
+    - name: Download and dearmor Caddy GPG key safely for both Debian and Ubuntu
+      ansible.builtin.shell: |
+        set -o pipefail
+        curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      args:
+        executable: /bin/bash
+        creates: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      become: true
+
+    - name: Securely add Caddy APT repository list file
+      ansible.builtin.get_url:
+        url: https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt
+        dest: /etc/apt/sources.list.d/caddy-stable.list
+        mode: '0644'
+      become: true
+
+    - name: Install Caddy package
+      ansible.builtin.apt:
+        name: caddy
+        state: present
+        update_cache: true
+      become: true
 
     # 8. Manage services with systemctl
     - name: Ensure Caddy and Mosquitto are enabled and running via systemctl
