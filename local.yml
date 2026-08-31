@@ -21,6 +21,22 @@
         state: present
         update_cache: true
 
+    - name: create config file for mosquitto
+      ansible.builtin.copy:
+        dest: /etc/mosquitto/conf.d/websockets.conf
+        mode: '0644'
+        content: |
+          # Allow connections from external devices
+          allow_anonymous true
+          
+          # Standard MQTT Port (TCP)
+          listener 1883
+          protocol mqtt
+
+          # WebSockets Port
+          listener 9001
+          protocol websockets
+
     - name: Download and dearmor Caddy GPG key safely for both Debian and Ubuntu
       ansible.builtin.shell: |
         set -o pipefail

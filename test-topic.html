@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>MQTT WebSocket Test</title>
+    <!-- Load the Paho MQTT JavaScript Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js" type="text/javascript"></script>
+    <script type="text/javascript">
+        // Change these settings to match your MQTT broker
+        var topic = "test/mqtt/websocket/123";
+
+        // Generate a unique client ID
+        var clientID = "client_" + Math.random().toString(16).substr(2, 8);
+        const client = new Paho.Client("wss://test-shire.dev.k3p.io/mqtt", clientID);
+
+        // Set callback handlers
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        // Connect the client
+        function startConnect() {
+            document.getElementById("status").innerHTML = "Connecting...";
+            client.connect({
+                onSuccess: onConnect,
+                onFailure: onFailure,
+                useSSL: false // Set to true if your broker uses WSS (secure websockets)
+            });
+        }
+
+        // Called when the client connects
+        function onConnect() {
+            document.getElementById("status").innerHTML = "Connected";
+            // Subscribe to the topic
+            client.subscribe(topic);
+            console.log("Subscribed to: " + topic);
+        }
+
+        // Called when connection fails
+        function onFailure(response) {
+            document.getElementById("status").innerHTML = "Connection failed: " + response.errorMessage;
+        }
+
+        // Called when the connection is lost
+        function onConnectionLost(response) {
+            if (response.errorCode !== 0) {
+                document.getElementById("status").innerHTML = "Connection lost: " + response.errorMessage;
+            }
+        }
+
+        // Called when a message arrives
+        function onMessageArrived(message) {
+            var msgBox = document.getElementById("messages");
+            msgBox.innerHTML += "<br><strong>Received:</strong> " + message.payloadString + " (on topic " + message.destinationName + ")";
+            msgBox.scrollTop = msgBox.scrollHeight;
+        }
+
+        // Send a message
+        function sendMsg() {
+            var text = document.getElementById("messageText").value;
+            message = new Paho.Message(text);
+            message.destinationName = topic;
+            client.send(message);
+        }
+    </script>
+</head>
+<body onload="startConnect();">
+    <h2>MQTT WebSocket Test</h2>
+    <p>Status: <span id="status" style="font-weight:bold; color:blue;">Initializing...</span></p>
+    
+    <div>
+        <input type="text" id="messageText" value="Hello MQTT!" />
+        <button onclick="sendMsg()">Send Message</button>
+    </div>
+
+    <h3>Messages:</h3>
+    <div id="messages" style="border:1px solid #ccc; height:150px; overflow:auto; padding:5px; background:#f9f9f9;"></div>
+</body>
+</html>

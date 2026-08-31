@@ -16,3 +16,16 @@ drone-server.local {
         }
     }
 }
+shire.dev.k3p.io {
+    tls {
+        on_demand
+    }
+    reverse_proxy localhost:4180
+}
+
+test-shire.dev.k3p.io {
+    tls {
+        on_demand
+    }
+    reverse_proxy localhost:9001
+}
