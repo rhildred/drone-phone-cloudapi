@@ -5,7 +5,7 @@
   become: true
   vars:
     # Safely fallback to ansible_user if ansible_env.USER is unavailable
-    original_user: "{{ ansible_facts['env']['USER'] | default(ansible_user) }}"
+    original_user: "{{ ansible_facts['env']['SUDO_USER'] | default(ansible_user) }}"
   tasks:
     # 1. Install prerequisites
     - name: Install prerequisite dependencies
@@ -139,6 +139,29 @@
         state: started
         enabled: true
       become: true
+
+    - name: Ensure webdev group exists
+      ansible.builtin.group:
+        name: webdev
+        state: present
+
+    - name: Add caddy and current user to webdev group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: webdev
+        append: yes
+      loop:
+        - caddy
+        - "{{ original_user }}" # Dynamically targets 'ubuntu' or whoever runs ansible-pull
+
+    - name: Create project base directory
+      ansible.builtin.file:
+        path: /var/www/source
+        state: directory
+        owner: "{{ original_user }}"
+        group: webdev
+        mode: '2775' # The '2' sets the SGID bit automatically
+        recurse: yes
         
     # 8. Manage services with systemctl
     - name: Ensure Caddy and Mosquitto are enabled and running via systemctl
