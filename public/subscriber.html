@@ -2,137 +2,175 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Drone-Phone Subscriber Dashboard</title>
+    <title>Drone System: Dynamic Subscriber Monitor</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f9f9f9; color: #333; }
-        .dashboard { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 15px; }
-        video { background: #000; width: 640px; height: 360px; display: block; border-radius: 4px; }
-        .telemetry-panel { background: #fff; padding: 15px; border-radius: 4px; border: 1px solid #ddd; min-width: 250px; }
-        .status-box { margin-bottom: 10px; font-size: 14px; }
-        .status-val { font-weight: bold; color: #0056b3; }
-        button { padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; background: #007bff; color: white; font-weight: bold; }
+        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; color: #333; }
+        h2 { margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; }
+        .drone-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-top: 5px solid #0056b3; }
+        .drone-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #0056b3; display: flex; justify-content: space-between; }
+        .telemetry-data { background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 13px; margin-bottom: 10px; line-height: 1.4; }
+        video { background: #000; width: 100%; aspect-ratio: 16/9; display: block; border-radius: 4px; }
+        .stale { opacity: 0.6; border-top-color: #6c757d; }
     </style>
-
+    
     <!-- Include Paho MQTT Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"
         type="text/javascript"></script>
-    
     <script type="module">
         const componentUrl = new URL(import.meta.url);
-        const streamName = 'mystream'; 
-        const topic = "test/mqtt/websocket/123";
         
-        const whepEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${streamName}/whep`;
+        // Listen to all telemetry under this path using the '+' wildcard
+        const wildcardTopic = "test/mqtt/websocket/+";
         const mqttUrl = import.meta.url.replace(/^http/, "ws").replace(componentUrl.pathname, "/mqtt");
 
-        const clientID = "sub_client_" + Math.random().toString(16).substr(2, 8);
+        const clientID = "sub_monitor_" + Math.random().toString(16).substr(2, 8);
         const mqttClient = new Paho.Client(mqttUrl, clientID);
 
-        let peerConnection;
+        // Track active drone connections to prevent duplicate WebRTC configurations
+        const activeDrones = {}; 
 
-        // --- MQTT Setup & Handlers ---
         mqttClient.onConnectionLost = (response) => {
-            if (response.errorCode !== 0) document.getElementById("mqttStatus").innerHTML = "Lost: " + response.errorMessage;
+            console.log("MQTT Connection Lost: " + response.errorMessage);
         };
 
         mqttClient.onMessageArrived = (message) => {
+            const topicParts = message.destinationName.split('/');
+            const soakId = topicParts[topicParts.length - 1]; // Pulls 'soak_XXXX'
+            
             try {
-                const data = JSON.parse(message.payloadString);
-                document.getElementById("latVal").textContent = data.latitude.toFixed(6);
-                document.getElementById("lngVal").textContent = data.longitude.toFixed(6);
-                document.getElementById("timeVal").textContent = data.timestamp;
+                const telemetry = JSON.parse(message.payloadString);
+                
+                // If this is a new soak test node, create its card and connect video stream
+                if (!activeDrones[soakId]) {
+                    createNewDroneCard(soakId);
+                }
+                
+                // Update UI readouts
+                updateTelemetryUI(soakId, telemetry);
             } catch (e) {
-                console.error("Error parsing telemetry payload:", e);
+                console.error("Failed to parse telemetry JSON", e);
             }
         };
 
-        function startMqttConnect() {
-            document.getElementById("mqttStatus").innerHTML = "Connecting...";
+        function connectMQTT() {
             mqttClient.connect({
                 onSuccess: () => {
-                    document.getElementById("mqttStatus").innerHTML = "Connected";
-                    document.getElementById("mqttStatus").style.color = "green";
-                    mqttClient.subscribe(topic);
+                    console.log("Connected to MQTT Broker");
+                    mqttClient.subscribe(wildcardTopic);
                 },
-                onFailure: (res) => { document.getElementById("mqttStatus").innerHTML = "Failed: " + res.errorMessage; },
+                onFailure: (res) => { console.error("MQTT Connection Failed: " + res.errorMessage); },
                 useSSL: componentUrl.protocol === 'https:'
             });
         }
 
-        // --- WebRTC WHEP Playback Execution ---
-        async function startPlayback() {
-            const videoStatusEl = document.getElementById("videoStatus");
-            const videoEl = document.getElementById("remoteVideo");
-            videoStatusEl.textContent = "Connecting to stream...";
-
-            // Wire up incoming MQTT metrics loop simultaneously
-            startMqttConnect();
-
-            peerConnection = new RTCPeerConnection({ iceServers: [] });
-
-            // 3. Mount incoming video and audio tracks directly into the DOM
-            peerConnection.ontrack = (event) => {
-                // Change event.streams to event.streams[0]
-                if (videoEl.srcObject !== event.streams[0]) {
-                    videoEl.srcObject = event.streams[0]; // 👈 Fix applied here
-                    videoStatusEl.textContent = "Streaming Live!";
-                    videoStatusEl.style.color = "green";
-                }
+        function createNewDroneCard(soakId) {
+            activeDrones[soakId] = {
+                lastSeen: Date.now(),
+                peerConnection: null
             };
-            
-            peerConnection.addTransceiver('video', { direction: 'recvonly' });
-            peerConnection.addTransceiver('audio', { direction: 'recvonly' });
 
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
+            const grid = document.getElementById("droneGrid");
+
+            // Build structural Card DOM elements
+            const card = document.createElement("div");
+            card.className = "drone-card";
+            card.id = `card-${soakId}`;
+
+            card.innerHTML = `
+                <div class="drone-title">
+                    <span>Target: ${soakId}</span>
+                    <span id="time-${soakId}" style="font-size:12px; color:#666;">Connecting...</span>
+                </div>
+                <div class="telemetry-data" id="telemetry-${soakId}">
+                    Waiting for initial packet...
+                </div>
+                <video id="video-${soakId}" autoplay playsinline muted controls></video>
+            `;
+
+            grid.appendChild(card);
+
+            // Hook up MediaMTX WebRTC (WHEP) subscriber stream for this specific target
+            startWhepSubscription(soakId);
+        }
+
+        function updateTelemetryUI(soakId, data) {
+            activeDrones[soakId].lastSeen = Date.now();
+            
+            const card = document.getElementById(`card-${soakId}`);
+            if(card) card.classList.remove("stale");
+
+            const timeEl = document.getElementById(`time-${soakId}`);
+            if (timeEl) timeEl.textContent = `Tx Clock: ${data.timestamp || 'N/A'}`;
+
+            const telEl = document.getElementById(`telemetry-${soakId}`);
+            if (telEl) {
+                telEl.innerHTML = `
+                    LAT:  ${data.latitude}<br>
+                    LNG:  ${data.longitude}<br>
+                    HEAD: ${data.heading}° | MODE: ${data.mode || 'SIM'}
+                `;
+            }
+        }
+
+        async function startWhepSubscription(soakId) {
+            const whepEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${soakId}/whep`;
+            const videoEl = document.getElementById(`video-${soakId}`);
 
             try {
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                activeDrones[soakId].peerConnection = pc;
+
+                // Add empty video/audio transceivers expecting tracks from MediaMTX
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+
+                pc.ontrack = (event) => {
+                    if (videoEl.srcObject !== event.streams[0]) {
+                        videoEl.srcObject = event.streams[0];
+                    }
+                };
+
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
                 const response = await fetch(whepEndpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/sdp' },
                     body: offer.sdp
                 });
 
-                if (!response.ok) throw new Error(`Server returned status ${response.status}`);
+                if (!response.ok) throw new Error(`WHEP endpoint returned code ${response.status}`);
 
                 const answerSdp = await response.text();
-                await peerConnection.setRemoteDescription(new RTCSessionDescription({
+                await pc.setRemoteDescription(new RTCSessionDescription({
                     type: 'answer',
                     sdp: answerSdp
                 }));
 
-            } catch (error) {
-                videoStatusEl.textContent = `Error: ${error.message}`;
-                videoStatusEl.style.color = "red";
+            } catch (err) {
+                console.error(`WHEP configuration error for ${soakId}:`, err);
             }
         }
 
-        document.addEventListener("DOMContentLoaded", () => {
-            document.getElementById("playBtn").addEventListener("click", startPlayback);
-        });
+        // Monitor loop to grey out cards if a soak test tab closes or stops updating
+        setInterval(() => {
+            const now = Date.now();
+            Object.keys(activeDrones).forEach(soakId => {
+                if (now - activeDrones[soakId].lastSeen > 4000) {
+                    const card = document.getElementById(`card-${soakId}`);
+                    if (card) card.classList.add("stale");
+                }
+            });
+        }, 2000);
+
+        document.addEventListener("DOMContentLoaded", connectMQTT);
     </script>
 </head>
 <body>
 
-    <h2>Drone-Phone System: Control Dashboard</h2>
-    
-    <div class="status-box">Video Feed: <span id="videoStatus" class="status-val">Ready</span></div>
-    <div class="status-box">Telemetry Link: <span id="mqttStatus" class="status-val">Disconnected</span></div>
-
-    <button id="playBtn">Connect Dashboard</button>
-    
-    <div class="dashboard">
-        <!-- Live Video Element -->
-        <video id="remoteVideo" autoplay playsinline controls></video>
-        
-        <!-- Live Telemetry Data Box -->
-        <div class="telemetry-panel">
-            <h3>Live Telemetry</h3>
-            <p><strong>Latitude:</strong> <span id="latVal">---</span></p>
-            <p><strong>Longitude:</strong> <span id="lngVal">---</span></p>
-            <p><strong>Last Updated:</strong> <span id="timeVal">---</span></p>
-        </div>
-    </div>
+    <h2>Drone-Phone System: Master Dynamic Receiver Monitoring Dashboard</h2>
+    <div class="grid" id="droneGrid"></div>
 
 </body>
 </html>

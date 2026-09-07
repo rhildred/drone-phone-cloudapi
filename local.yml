@@ -136,7 +136,7 @@
           # 5. Define permanent paths
           paths:
             # Remove the 'source' line so MediaMTX acts as a passive receiver
-            mystream: {}
+            all: {}
 
     - name: Copy gateway-services folder to /opt
       ansible.builtin.copy:

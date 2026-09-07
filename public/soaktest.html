@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Drone System: Soak Test Client</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background: #1e1e24;
+            color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: #2a2a35;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #bbb;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            background: #3b3b4f;
+            border: 1px solid #575775;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        canvas {
+            background: #000;
+            display: block;
+            margin-top: 15px;
+            width: 100%;
+            max-width: 640px;
+            height: 360px;
+            border-radius: 4px;
+        }
+
+        .status-box {
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .status-val {
+            font-weight: bold;
+            color: #38b6ff;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            border: none;
+            background: #28a745;
+            color: white;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #218838;
+        }
+    </style>
+
+    <!-- Include Paho MQTT Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"
+        type="text/javascript"></script>
+    <script type="module">
+        const componentUrl = new URL(import.meta.url);
+        
+        // GENERATE UNIQUE ID FOR THIS RUN:
+        const soakId = "soak_" + Math.random().toString(16).substr(2, 4);
+        const streamName = soakId; 
+        const topic = `test/mqtt/websocket/${soakId}`;
+        
+        // Dynamic absolute URLs mapped perfectly via Caddy configuration
+        const whipEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${streamName}/whip`;
+        const mqttUrl = import.meta.url.replace(/^http/, "ws").replace(componentUrl.pathname, "/mqtt");
+
+        // Use the same ID for the client ID
+        const clientID = "pub_" + soakId;
+        const mqttClient = new Paho.Client(mqttUrl, clientID);
+
+        let peerConnection;
+        let animationId;
+        let currentAngle = 0;
+        let isRunning = false;
+
+        let canvas, ctx;
+
+        // --- 1. Canvas Dynamic Test Pattern Generation ---
+        function drawTestPattern() {
+            if (!isRunning) return;
+
+            // Clear background
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw sliding color grids
+            const timeOffset = Date.now() * 0.002;
+            for (let i = 0; i < 8; i++) {
+                ctx.fillStyle = `hsl(${(i * 45 + timeOffset * 20) % 360}, 65%, 45%)`;
+                ctx.fillRect(i * (canvas.width / 8), 30, canvas.width / 8, canvas.height - 90);
+            }
+
+            // Orbital vector display shape
+            const centerX = canvas.width / 2 + Math.cos(timeOffset) * 120;
+            const centerY = canvas.height / 2 + Math.sin(timeOffset * 1.3) * 60;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 25, 0, 2 * Math.PI);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            // Overlay Burn-In Timestamp (for frame freeze detection)
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(10, canvas.height - 50, canvas.width - 20, 40);
+
+            ctx.fillStyle = '#00ff00';
+            ctx.font = '16px monospace';
+            ctx.fillText(`SOAK RUNNING // UTC: ${new Date().toISOString()}`, 20, canvas.height - 24);
+
+            animationId = requestAnimationFrame(drawTestPattern);
+        }
+
+        // --- 2. Geometric Flight Path Math ---
+        function calculateNextCoordinate(centerLat, centerLng, radiusMeters, angleDegrees) {
+            const EarthRadius = 6378137; // Radius of Earth in meters
+            const angleRad = angleDegrees * (Math.PI / 180);
+
+            // Approximate angular displacements in radians
+            const dLat = (radiusMeters * Math.cos(angleRad)) / EarthRadius;
+            const dLng = (radiusMeters * Math.sin(angleRad)) / (EarthRadius * Math.cos(centerLat * Math.PI / 180));
+
+            const nextLat = centerLat + (dLat * 180 / Math.PI);
+            const nextLng = centerLng + (dLng * 180 / Math.PI);
+
+            return { latitude: parseFloat(nextLat.toFixed(6)), longitude: parseFloat(nextLng.toFixed(6)) };
+        }
+
+        // --- 3. MQTT Broker Loops ---
+        mqttClient.onConnectionLost = (response) => {
+            if (response.errorCode !== 0) {
+                document.getElementById("mqttStatus").innerHTML = "Lost: " + response.errorMessage;
+                document.getElementById("mqttStatus").style.color = "red";
+            }
+        };
+
+        function startMqttConnect() {
+            document.getElementById("mqttStatus").innerHTML = "Connecting...";
+            mqttClient.connect({
+                onSuccess: onMqttConnect,
+                onFailure: (res) => {
+                    document.getElementById("mqttStatus").innerHTML = "Failed: " + res.errorMessage;
+                    document.getElementById("mqttStatus").style.color = "red";
+                },
+                useSSL: componentUrl.protocol === 'https:'
+            });
+        }
+
+        function onMqttConnect() {
+            document.getElementById("mqttStatus").innerHTML = "Connected";
+            document.getElementById("mqttStatus").style.color = "green";
+
+            const latInput = parseFloat(document.getElementById("lat").value);
+            const lngInput = parseFloat(document.getElementById("lng").value);
+            const radiusInput = parseFloat(document.getElementById("radius").value);
+            const speedInput = parseFloat(document.getElementById("speed").value);
+
+            // 1 Hz Telemetry Cadence matching phone structure
+            setInterval(() => {
+                if (!isRunning) return;
+
+                // Step orbit based on degrees per second input
+                currentAngle = (currentAngle + speedInput) % 360;
+                const coords = calculateNextCoordinate(latInput, lngInput, radiusInput, currentAngle);
+
+                const payload = JSON.stringify({
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                    timestamp: new Date().toLocaleTimeString(),
+                    heading: Math.round(currentAngle),
+                    mode: "SOAK_FLIGHT_SIM"
+                });
+
+                const message = new Paho.Message(payload);
+                message.destinationName = topic;
+                mqttClient.send(message);
+            }, 1000);
+        }
+
+        // --- 4. WebRTC Canvas WHIP Stream Hook ---
+        async function startSoakTest() {
+            if (isRunning) return;
+            isRunning = true;
+
+            const videoStatusEl = document.getElementById("videoStatus");
+            videoStatusEl.textContent = "Initializing synthetic frame canvas...";
+
+            startMqttConnect();
+            drawTestPattern();
+
+            try {
+                // Capture the generated Canvas element directly at 30 FPS
+                const canvasStream = canvas.captureStream(30);
+                videoStatusEl.textContent = "Connecting to MediaMTX WHIP server...";
+
+                peerConnection = new RTCPeerConnection({ iceServers: [] });
+                canvasStream.getTracks().forEach(track => peerConnection.addTrack(track, canvasStream));
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                const response = await fetch(whipEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/sdp' },
+                    body: offer.sdp
+                });
+
+                if (!response.ok) throw new Error(`Server returned status ${response.status}`);
+
+                const answerSdp = await response.text();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: answerSdp
+                }));
+
+                videoStatusEl.textContent = "Broadcasting Simulated Flight Pattern!";
+                videoStatusEl.style.color = "green";
+
+            } catch (error) {
+                videoStatusEl.textContent = `Streaming Error: ${error.message}`;
+                videoStatusEl.style.color = "red";
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            canvas = document.getElementById("testCanvas");
+            ctx = canvas.getContext("2d");
+            document.getElementById("publishBtn").addEventListener("click", startSoakTest);
+        });
+    </script>
+</head>
+
+<body>
+
+    <div class="container">
+        <h2>Drone System: Soak Test Client</h2>
+
+        <div class="card">
+            <h3>Flight Target Variables</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                <div class="form-group">
+                    <label for="lat">Center Lat:</label>
+                    <input type="number" id="lat" value="43.4723" step="0.0001">
+                </div>
+                <div class="form-group">
+                    <label for="lng">Center Lng:</label>
+                    <input type="number" id="lng" value="-80.5449" step="0.0001">
+                </div>
+                <div class="form-group">
+                    <label for="radius">Radius (meters):</label>
+                    <input type="number" id="radius" value="150" step="1">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="speed">Flight Velocity (degrees/sec step):</label>
+                <input type="number" id="speed" value="6" step="1">
+            </div>
+            <div class="form-group">
+                <button id="publishBtn"></button>
+            </div>
+        </div>
+        <canvas id="testCanvas"></canvas>
+        <div class="status-box">Video Status: <span id="videoStatus" class="status-val">Ready</span></div>
+        <div class="status-box">MQTT Status: <span id="mqttStatus" class="status-val">Disconnected</span></div>
+    </div>
+</body>
+
+</html>
