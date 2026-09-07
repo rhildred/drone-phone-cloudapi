@@ -1,16 +1,19 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>MQTT WebSocket HQ Test</title>
     <!-- Load the Paho MQTT JavaScript Library -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js" type="text/javascript"></script>
-    <script type="text/javascript">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"
+        type="text/javascript"></script>
+    <script type="module">
         // Change these settings to match your MQTT broker
         var topic = "test/mqtt/websocket/123";
 
         // Generate a unique client ID
         var clientID = "client_" + Math.random().toString(16).substr(2, 8);
-        const client = new Paho.Client("wss://test-shire.dev.k3p.io/mqtt", clientID);
+        let mqtt_url = import.meta.url.replace(/^http/, "ws").replace(new URL(import.meta.url).pathname, "/mqtt");
+        const client = new Paho.Client(mqtt_url, clientID);
 
         // Set callback handlers
         client.onConnectionLost = onConnectionLost;
@@ -53,20 +56,21 @@
             msgBox.scrollTop = msgBox.scrollHeight;
         }
 
-        // Send a message
-        function sendMsg() {
-            var text = document.getElementById("messageText").value;
-            message = new Paho.Message(text);
-            message.destinationName = topic;
-            client.send(message);
-        }
+
+        // Automatically fire when the DOM content is ready
+        document.addEventListener("DOMContentLoaded", () => {
+            startConnect();
+        });
     </script>
 </head>
-<body onload="startConnect();">
+
+<body>
     <h2>MQTT WebSocket Test</h2>
     <p>Status: <span id="status" style="font-weight:bold; color:blue;">Initializing...</span></p>
-    
+
     <h3>Messages:</h3>
-    <div id="messages" style="border:1px solid #ccc; height:150px; overflow:auto; padding:5px; background:#f9f9f9;"></div>
+    <div id="messages" style="border:1px solid #ccc; height:150px; overflow:auto; padding:5px; background:#f9f9f9;">
+    </div>
 </body>
+
 </html>
