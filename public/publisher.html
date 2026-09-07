@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Drone-Phone Publisher (Video + GPS)</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f9f9f9; color: #333; }
+        video { background: #000; width: 100%; max-width: 640px; height: 360px; display: block; margin-top: 15px; border-radius: 4px; }
+        .status-box { margin-bottom: 10px; font-size: 14px; }
+        .status-val { font-weight: bold; color: #0056b3; }
+        button { padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 4px; border: none; background: #28a745; color: white; font-weight: bold; }
+    </style>
+    
+    <!-- Include Paho MQTT Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"
+        type="text/javascript"></script>
+    <script type="module">
+        const componentUrl = new URL(import.meta.url);
+        const streamName = 'mystream'; 
+        const topic = "test/mqtt/websocket/123";
+        
+        // Dynamic absolute URLs via your Caddy config blocks
+        const whipEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${streamName}/whip`;
+        const mqttUrl = import.meta.url.replace(/^http/, "ws").replace(componentUrl.pathname, "/mqtt");
+
+        // Generate a unique client ID
+        const clientID = "pub_client_" + Math.random().toString(16).substr(2, 8);
+        const mqttClient = new Paho.Client(mqttUrl, clientID);
+
+        let peerConnection;
+        let localStream;
+
+        // --- MQTT Setup & Handlers ---
+        mqttClient.onConnectionLost = (response) => {
+            if (response.errorCode !== 0) {
+                document.getElementById("mqttStatus").innerHTML = "Lost: " + response.errorMessage;
+            }
+        };
+
+        function startMqttConnect() {
+            document.getElementById("mqttStatus").innerHTML = "Connecting...";
+            mqttClient.connect({
+                onSuccess: onMqttConnect,
+                onFailure: (res) => { document.getElementById("mqttStatus").innerHTML = "Failed: " + res.errorMessage; },
+                useSSL: componentUrl.protocol === 'https:'
+            });
+        }
+
+        function onMqttConnect() {
+            document.getElementById("mqttStatus").innerHTML = "Connected";
+            document.getElementById("mqttStatus").style.color = "green";
+            
+            // Kick off the GPS publishing loop every 1 second
+            setInterval(() => {
+                if ("geolocation" in navigator) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const latitude = position.coords.latitude;
+                            const longitude = position.coords.longitude;
+                            const message = new Paho.Message(JSON.stringify({ 
+                                latitude, 
+                                longitude, 
+                                timestamp: new Date().toLocaleTimeString() 
+                            }));
+                            message.destinationName = topic;
+                            mqttClient.send(message);
+                        },
+                        (error) => { console.error(`GPS Error: ${error.message}`); },
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                    );
+                }
+            }, 1000);
+        }
+
+        // --- WebRTC WHIP Video Publishing ---
+        async function startPublishing() {
+            const videoStatusEl = document.getElementById("videoStatus");
+            const videoEl = document.getElementById("localVideo");
+            videoStatusEl.textContent = "Requesting rear camera access...";
+
+            // Simultaneously connect MQTT when the user triggers the action
+            startMqttConnect();
+
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" } }, 
+                    audio: true
+                });
+                
+                videoEl.srcObject = localStream;
+                videoStatusEl.textContent = "Connecting to MediaMTX WHIP server...";
+
+                peerConnection = new RTCPeerConnection({ iceServers: [] });
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                const response = await fetch(whipEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/sdp' },
+                    body: offer.sdp
+                });
+
+                if (!response.ok) throw new Error(`Server returned status ${response.status}`);
+
+                const answerSdp = await response.text();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: answerSdp
+                }));
+
+                videoStatusEl.textContent = "Broadcasting Live!";
+                videoStatusEl.style.color = "green";
+
+            } catch (error) {
+                // Fallback for laptops/desktops without an exact "environment" rear lens
+                if (error.name === "OverconstrainedError" || error.name === "NotFoundError") {
+                    videoStatusEl.textContent = "Rear camera not found. Using default camera...";
+                    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                    videoEl.srcObject = localStream;
+                } else {
+                    videoStatusEl.textContent = `Error: ${error.message}`;
+                    videoStatusEl.style.color = "red";
+                }
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("publishBtn").addEventListener("click", startPublishing);
+        });
+    </script>
+</head>
+<body>
+
+    <h2>Drone-Phone System: Publisher Mode</h2>
+    
+    <div class="status-box">Video Status: <span id="videoStatus" class="status-val">Ready</span></div>
+    <div class="status-box">MQTT Status: <span id="mqttStatus" class="status-val">Disconnected</span></div>
+
+    <button id="publishBtn">Start Broadcaster Node</button>
+    
+    <video id="localVideo" autoplay playsinline muted></video>
+
+</body>
+</html>
