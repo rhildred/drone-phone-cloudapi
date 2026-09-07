@@ -107,6 +107,7 @@
         let isRunning = false;
 
         let canvas, ctx;
+        let renderInterval = null;
 
         // --- 1. Canvas Dynamic Test Pattern Generation ---
         function drawTestPattern() {
@@ -139,7 +140,6 @@
             ctx.font = '16px monospace';
             ctx.fillText(`SOAK RUNNING // UTC: ${new Date().toISOString()}`, 20, canvas.height - 24);
 
-            animationId = requestAnimationFrame(drawTestPattern);
         }
 
         // --- 2. Geometric Flight Path Math ---
@@ -221,8 +221,15 @@
 
             try {
                 // Capture the generated Canvas element directly at 30 FPS
+                // Keep the capture pipe intact (MediaMTX needs this track anchor)
                 const canvasStream = canvas.captureStream(30);
                 videoStatusEl.textContent = "Connecting to MediaMTX WHIP server...";
+
+                // Clear any existing timer safely
+                if (renderInterval) clearInterval(renderInterval);
+
+                // Trigger a hard-timed execution loop every 30 milliseconds on the main thread
+                renderInterval = setInterval(drawTestPattern, 30);
 
                 peerConnection = new RTCPeerConnection({ iceServers: [] });
                 canvasStream.getTracks().forEach(track => peerConnection.addTrack(track, canvasStream));
