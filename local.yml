@@ -18,6 +18,7 @@
           - gnupg
           - mosquitto
           - mosquitto-clients
+          - ffmpeg
         state: present
         update_cache: true
 
@@ -94,6 +95,48 @@
 
           [Install]
           WantedBy=multi-user.target
+
+    - name: Configure MediaMTX via block literal
+      ansible.builtin.copy:
+        dest: /opt/mediamtx/mediamtx.yml
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Global settings
+          logLevel: info
+          logDestinations: [stdout]
+
+          # 1. Disable unused protocols to keep your system footprint low
+          rtmp: no
+          hls: no
+          srt: no
+
+          # 2. Configure RTSP (Keep enabled if you want to push ffmpeg video loops)
+          rtsp: yes
+          rtspAddress: 127.0.0.1:8554
+
+          # 3. Configure WebRTC signaling for Caddy (HTTP)
+          webrtc: yes
+          webrtcAddress: 127.0.0.1:8889   # Caddy reverse-proxies directly to this port
+          webrtcEncryption: no            # Set to 'no' because Caddy handles the public HTTPS layer
+          webrtcAllowOrigin: '*'          # Allows your custom element to communicate across paths safely
+
+          # 4. SINGLE PORT WEBRTC MEDIA TRANSPORT (Zero Cloud Setup)
+          webrtcLocalUDPAddress: :8189    # Multiplexes ALL streaming video onto this single UDP port
+          webrtcLocalTCPAddress: ""       # Leave empty; we want ultra-low latency UDP transport
+
+          # ZERO CLOUD DEPENDENCIES:
+          # Empty array tells MediaMTX to never rely on external Google STUN servers
+          webrtcICEServers2: []           
+
+          # Advertise the system's public IPv4 address dynamically to external clients
+          webrtcAdditionalHosts: [{{ ansible_facts['default_ipv4']['address'] }}]
+
+          # 5. Define permanent paths
+          paths:
+            # Remove the 'source' line so MediaMTX acts as a passive receiver
+            mystream: {}
 
     - name: Copy gateway-services folder to /opt
       ansible.builtin.copy:

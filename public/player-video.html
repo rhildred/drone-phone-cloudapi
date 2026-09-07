@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MediaMTX WHEP WebRTC Player</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f9f9f9; color: #333; }
+        video { background: #000; width: 640px; height: 360px; display: block; margin-top: 15px; border-radius: 4px; }
+        #status { font-weight: bold; color: #0056b3; }
+        button { padding: 10px 20px; font-size: 14px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; }
+    </style>
+    
+    <script type="module">
+        // 1. Resolve everything dynamically relative to this script's host
+        const componentUrl = new URL(import.meta.url);
+        const streamName = 'mystream'; 
+        
+        // Target your Caddy 'handle_path /mediamtx/*' block via active protocol
+        const whepEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${streamName}/whep`;
+
+        let peerConnection;
+
+        async function startPlayback() {
+            const statusEl = document.getElementById("status");
+            const videoEl = document.getElementById("remoteVideo");
+            statusEl.textContent = "Connecting to self-hosted stream...";
+
+            // 2. Initialize Peer Connection with ZERO cloud/STUN dependencies
+            peerConnection = new RTCPeerConnection({ iceServers: [] });
+
+            // 3. Mount incoming video and audio tracks directly into the DOM
+            peerConnection.ontrack = (event) => {
+                if (videoEl.srcObject !== event.streams[0]) {
+                    videoEl.srcObject = event.streams[0];
+                    statusEl.textContent = "Streaming Live!";
+                    statusEl.style.color = "green";
+                }
+            };
+
+            // 4. Force browser to declare reception intent to MediaMTX
+            peerConnection.addTransceiver('video', { direction: 'recvonly' });
+            peerConnection.addTransceiver('audio', { direction: 'recvonly' });
+
+            // 5. Generate local SDP Offer
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            // 6. Push local configuration to MediaMTX WHEP endpoint via Caddy
+            try {
+                const response = await fetch(whepEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/sdp' },
+                    body: offer.sdp
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server returned status ${response.status}`);
+                }
+
+                // 7. Apply the resulting SDP Answer from MediaMTX
+                const answerSdp = await response.text();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription({
+                    type: 'answer',
+                    sdp: answerSdp
+                }));
+
+            } catch (error) {
+                statusEl.textContent = `Error: ${error.message}`;
+                statusEl.style.color = "red";
+                console.error("WebRTC WHEP Signaling failed:", error);
+            }
+        }
+
+        // 8. Explicit module-level event registration 
+        document.addEventListener("DOMContentLoaded", () => {
+            document.getElementById("playBtn").addEventListener("click", startPlayback);
+        });
+    </script>
+</head>
+<body>
+
+    <h2>MediaMTX WebRTC Test</h2>
+    <p>Status: <span id="status">Ready</span></p>
+
+    <button id="playBtn">Start Stream</button>
+    
+    <!-- autoplay, playsinline, and controls are required for web streams to render correctly -->
+    <video id="remoteVideo" autoplay playsinline controls></video>
+
+</body>
+</html>
