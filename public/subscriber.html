@@ -7,11 +7,33 @@
         body { font-family: sans-serif; padding: 20px; background: #f0f2f5; color: #333; }
         h2 { margin-bottom: 20px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; }
-        .drone-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-top: 5px solid #0056b3; }
-        .drone-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #0056b3; display: flex; justify-content: space-between; }
+        .drone-card { position: relative; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-top: 5px solid #0056b3; }
+        .drone-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #0056b3; display: flex; justify-content: space-between; align-items: center; }
         .telemetry-data { background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 13px; margin-bottom: 10px; line-height: 1.4; }
         video { background: #000; width: 100%; aspect-ratio: 16/9; display: block; border-radius: 4px; }
-        .stale { opacity: 0.6; border-top-color: #6c757d; }
+        
+        /* Fade out all children elements of a stale card except the close button */
+        .stale { border-top-color: #6c757d; }
+        .stale > *:not(.close-btn) { opacity: 0.6; }
+        
+        /* Close Button Overlay Styling (forces full visual clarity) */
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 10;
+            opacity: 1 !important; /* Forces button to stay at full brightness */
+        }
+        .close-btn:hover { background: #c82333; }
     </style>
     
     <!-- Include Paho MQTT Library -->
@@ -67,7 +89,8 @@
         function createNewDroneCard(soakId) {
             activeDrones[soakId] = {
                 lastSeen: Date.now(),
-                peerConnection: null
+                peerConnection: null,
+                isStale: false
             };
 
             const grid = document.getElementById("droneGrid");
@@ -80,7 +103,7 @@
             card.innerHTML = `
                 <div class="drone-title">
                     <span>Target: ${soakId}</span>
-                    <span id="time-${soakId}" style="font-size:12px; color:#666;">Connecting...</span>
+                    <span id="time-${soakId}" style="font-size:12px; color:#666; margin-right: 60px;">Connecting...</span>
                 </div>
                 <div class="telemetry-data" id="telemetry-${soakId}">
                     Waiting for initial packet...
@@ -95,10 +118,19 @@
         }
 
         function updateTelemetryUI(soakId, data) {
+            // If card was deleted via close button, skip updates
+            if (!activeDrones[soakId]) return;
+
             activeDrones[soakId].lastSeen = Date.now();
             
             const card = document.getElementById(`card-${soakId}`);
-            if(card) card.classList.remove("stale");
+            if (card) {
+                card.classList.remove("stale");
+                // Remove close button if the stream becomes active again
+                const closeBtn = card.querySelector('.close-btn');
+                if (closeBtn) closeBtn.remove();
+                activeDrones[soakId].isStale = false;
+            }
 
             const timeEl = document.getElementById(`time-${soakId}`);
             if (timeEl) timeEl.textContent = `Tx Clock: ${data.timestamp || 'N/A'}`;
@@ -153,13 +185,43 @@
             }
         }
 
-        // Monitor loop to grey out cards if a soak test tab closes or stops updating
+        // Logic to remove card and clean up connections completely
+        window.removeDroneCard = function(soakId) {
+            const card = document.getElementById(`card-${soakId}`);
+            if (card) card.remove();
+
+            if (activeDrones[soakId]) {
+                if (activeDrones[soakId].peerConnection) {
+                    activeDrones[soakId].peerConnection.close();
+                }
+                delete activeDrones[soakId];
+            }
+        };
+
+        // Monitor loop to grey out cards, append close buttons, and push them to the top
         setInterval(() => {
             const now = Date.now();
+            const grid = document.getElementById("droneGrid");
+
             Object.keys(activeDrones).forEach(soakId => {
                 if (now - activeDrones[soakId].lastSeen > 4000) {
                     const card = document.getElementById(`card-${soakId}`);
-                    if (card) card.classList.add("stale");
+                    if (card) {
+                        card.classList.add("stale");
+                        
+                        // Push inactive cards to the very top of the grid container
+                        grid.prepend(card);
+
+                        // Render close button overlay if it doesn't already exist
+                        if (!card.querySelector('.close-btn')) {
+                            const closeBtn = document.createElement('button');
+                            closeBtn.className = 'close-btn';
+                            closeBtn.innerText = 'Close';
+                            closeBtn.onclick = () => removeDroneCard(soakId);
+                            card.appendChild(closeBtn);
+                        }
+                    }
+                    activeDrones[soakId].isStale = true;
                 }
             });
         }, 2000);

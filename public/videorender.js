@@ -3,6 +3,7 @@ let canvas = null;
 let ctx = null;
 let heartbeatInterval = null;
 
+
 // --- Moved to Worker: Canvas Dynamic Test Pattern Generation ---
 function drawTestPattern() {
     if (!ctx) return;

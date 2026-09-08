@@ -16,8 +16,9 @@
         type="text/javascript"></script>
     <script type="module">
         const componentUrl = new URL(import.meta.url);
+        // Force the last part of the topic to explicitly match the video stream name
         const streamName = 'mystream'; 
-        const topic = "test/mqtt/websocket/123";
+        const topic = "test/mqtt/websocket/mystream"; // Changed from /123 to /mystream
         
         // Dynamic absolute URLs via your Caddy config blocks
         const whipEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${streamName}/whip`;
