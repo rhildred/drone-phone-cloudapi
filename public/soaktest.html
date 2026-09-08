@@ -87,12 +87,12 @@
         type="text/javascript"></script>
     <script type="module">
         const componentUrl = new URL(import.meta.url);
-        
+
         // GENERATE UNIQUE ID FOR THIS RUN:
         const soakId = "soak_" + Math.random().toString(16).substr(2, 4);
-        const streamName = soakId; 
+        const streamName = soakId;
         const topic = `test/mqtt/websocket/${soakId}`;
-        
+
         // Dynamic absolute URLs mapped perfectly via Caddy configuration
         const whipEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${streamName}/whip`;
         const mqttUrl = import.meta.url.replace(/^http/, "ws").replace(componentUrl.pathname, "/mqtt");
@@ -106,41 +106,8 @@
         let currentAngle = 0;
         let isRunning = false;
 
-        let canvas, ctx;
         let renderInterval = null;
-
-        // --- 1. Canvas Dynamic Test Pattern Generation ---
-        function drawTestPattern() {
-            if (!isRunning) return;
-
-            // Clear background
-            ctx.fillStyle = '#111';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            // Draw sliding color grids
-            const timeOffset = Date.now() * 0.002;
-            for (let i = 0; i < 8; i++) {
-                ctx.fillStyle = `hsl(${(i * 45 + timeOffset * 20) % 360}, 65%, 45%)`;
-                ctx.fillRect(i * (canvas.width / 8), 30, canvas.width / 8, canvas.height - 90);
-            }
-
-            // Orbital vector display shape
-            const centerX = canvas.width / 2 + Math.cos(timeOffset) * 120;
-            const centerY = canvas.height / 2 + Math.sin(timeOffset * 1.3) * 60;
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, 25, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-
-            // Overlay Burn-In Timestamp (for frame freeze detection)
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(10, canvas.height - 50, canvas.width - 20, 40);
-
-            ctx.fillStyle = '#00ff00';
-            ctx.font = '16px monospace';
-            ctx.fillText(`SOAK RUNNING // UTC: ${new Date().toISOString()}`, 20, canvas.height - 24);
-
-        }
+        let videoWorker = null;
 
         // --- 2. Geometric Flight Path Math ---
         function calculateNextCoordinate(centerLat, centerLng, radiusMeters, angleDegrees) {
@@ -217,19 +184,30 @@
             videoStatusEl.textContent = "Initializing synthetic frame canvas...";
 
             startMqttConnect();
-            drawTestPattern();
+            // Build the absolute path to your new worker script via your Caddy absolute module context
+            // 1. Get references to your canvas context
+            const htmlCanvas = document.getElementById("testCanvas");
+            // 2. CRITICAL STEP: Capture the 30 FPS video pipe stream pointer while the main thread owns the canvas frame reference anchor
+            const canvasStream = htmlCanvas.captureStream(30);
+
+            // 3. Decouple drawing operations from the main UI layout tree 
+            const offscreenCanvas = htmlCanvas.transferControlToOffscreen();
+
+            // 4. Instantiate the worker (Keep your existing absolute URL setup)
+            const workerUrl = new URL('./videorender.js', componentUrl).href;
+            videoWorker = new Worker(workerUrl);
+
+            // 5. Transfer control of the canvas directly down to the worker thread array
+            // Note the second argument [offscreenCanvas] is required to transfer ownership!
+            videoWorker.postMessage({ type: 'init', canvas: offscreenCanvas }, [offscreenCanvas]);
+
+            // 6. Tell the worker to fire up its timing engines
+            videoWorker.postMessage({ type: 'start' });
 
             try {
                 // Capture the generated Canvas element directly at 30 FPS
                 // Keep the capture pipe intact (MediaMTX needs this track anchor)
-                const canvasStream = canvas.captureStream(30);
                 videoStatusEl.textContent = "Connecting to MediaMTX WHIP server...";
-
-                // Clear any existing timer safely
-                if (renderInterval) clearInterval(renderInterval);
-
-                // Trigger a hard-timed execution loop every 30 milliseconds on the main thread
-                renderInterval = setInterval(drawTestPattern, 30);
 
                 peerConnection = new RTCPeerConnection({ iceServers: [] });
                 canvasStream.getTracks().forEach(track => peerConnection.addTrack(track, canvasStream));
@@ -261,8 +239,6 @@
         }
 
         document.addEventListener("DOMContentLoaded", () => {
-            canvas = document.getElementById("testCanvas");
-            ctx = canvas.getContext("2d");
             document.getElementById("publishBtn").addEventListener("click", startSoakTest);
         });
     </script>
