@@ -1,21 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Drone System: Dynamic Subscriber Monitor</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #f0f2f5; color: #333; }
-        h2 { margin-bottom: 20px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 20px; }
-        .drone-card { position: relative; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-top: 5px solid #0056b3; }
-        .drone-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #0056b3; display: flex; justify-content: space-between; align-items: center; }
-        .telemetry-data { background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 13px; margin-bottom: 10px; line-height: 1.4; }
-        video { background: #000; width: 100%; aspect-ratio: 16/9; display: block; border-radius: 4px; }
-        
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background: #f0f2f5;
+            color: #333;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        .drone-card {
+            position: relative;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            border-top: 5px solid #0056b3;
+        }
+
+        .drone-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #0056b3;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .telemetry-data {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        video {
+            background: #000;
+            width: 100%;
+            aspect-ratio: 16/9;
+            display: block;
+            border-radius: 4px;
+        }
+
         /* Fade out all children elements of a stale card except the close button */
-        .stale { border-top-color: #6c757d; }
-        .stale > *:not(.close-btn) { opacity: 0.6; }
-        
+        .stale {
+            border-top-color: #6c757d;
+        }
+
+        .stale>*:not(.close-btn) {
+            opacity: 0.6;
+        }
+
         /* Close Button Overlay Styling (forces full visual clarity) */
         .close-btn {
             position: absolute;
@@ -29,28 +81,34 @@
             font-size: 12px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
             z-index: 10;
-            opacity: 1 !important; /* Forces button to stay at full brightness */
+            opacity: 1 !important;
+            /* Forces button to stay at full brightness */
         }
-        .close-btn:hover { background: #c82333; }
+
+        .close-btn:hover {
+            background: #c82333;
+        }
     </style>
-    
+
     <!-- Include Paho MQTT Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"
         type="text/javascript"></script>
     <script type="module">
         const componentUrl = new URL(import.meta.url);
-        
+
         // Listen to all telemetry under this path using the '+' wildcard
         const wildcardTopic = "test/mqtt/websocket/+";
-        const mqttUrl = import.meta.url.replace(/^http/, "ws").replace(componentUrl.pathname, "/mqtt");
+        const mqttUrl = import.meta.url
+            .replace(/^http/, "ws")
+            .replace(new RegExp(componentUrl.pathname + "$"), "/mqtt");
 
         const clientID = "sub_monitor_" + Math.random().toString(16).substr(2, 8);
         const mqttClient = new Paho.Client(mqttUrl, clientID);
 
         // Track active drone connections to prevent duplicate WebRTC configurations
-        const activeDrones = {}; 
+        const activeDrones = {};
 
         mqttClient.onConnectionLost = (response) => {
             console.log("MQTT Connection Lost: " + response.errorMessage);
@@ -59,15 +117,15 @@
         mqttClient.onMessageArrived = (message) => {
             const topicParts = message.destinationName.split('/');
             const soakId = topicParts[topicParts.length - 1]; // Pulls 'soak_XXXX'
-            
+
             try {
                 const telemetry = JSON.parse(message.payloadString);
-                
+
                 // If this is a new soak test node, create its card and connect video stream
                 if (!activeDrones[soakId]) {
                     createNewDroneCard(soakId);
                 }
-                
+
                 // Update UI readouts
                 updateTelemetryUI(soakId, telemetry);
             } catch (e) {
@@ -122,7 +180,7 @@
             if (!activeDrones[soakId]) return;
 
             activeDrones[soakId].lastSeen = Date.now();
-            
+
             const card = document.getElementById(`card-${soakId}`);
             if (card) {
                 card.classList.remove("stale");
@@ -186,7 +244,7 @@
         }
 
         // Logic to remove card and clean up connections completely
-        window.removeDroneCard = function(soakId) {
+        window.removeDroneCard = function (soakId) {
             const card = document.getElementById(`card-${soakId}`);
             if (card) card.remove();
 
@@ -208,7 +266,7 @@
                     const card = document.getElementById(`card-${soakId}`);
                     if (card) {
                         card.classList.add("stale");
-                        
+
                         // Push inactive cards to the very top of the grid container
                         grid.prepend(card);
 
@@ -229,10 +287,12 @@
         document.addEventListener("DOMContentLoaded", connectMQTT);
     </script>
 </head>
+
 <body>
 
     <h2>Drone-Phone System: Master Dynamic Receiver Monitoring Dashboard</h2>
     <div class="grid" id="droneGrid"></div>
 
 </body>
+
 </html>
