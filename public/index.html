@@ -90,8 +90,53 @@
         .close-btn:hover {
             background: #c82333;
         }
-    </style>
 
+        /* QR and Instructions Flexbox Container */
+        .qr-section {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        /* Editable instructions block */
+        .scan-instructions {
+            flex: 1;
+            font-size: 16px;
+            line-height: 1.5;
+            color: #333333;
+            padding: 10px;
+            border: 1px dashed #ccc;
+            border-radius: 4px;
+            background-color: #fafafa;
+        }
+
+        .scan-instructions:focus {
+            outline: 2px solid #0056b3;
+            background-color: #ffffff;
+        }
+
+        .qr-code-wrapper {
+            flex-shrink: 0;
+        }
+
+        /* Placeholder for your data grid */
+        .data-grid-placeholder {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            padding: 40px;
+            text-align: center;
+            color: #666;
+            border-radius: 8px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+        integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSQX0FslNhTDadL4O5SAGapGt4FodqL8My0mA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <!-- Include Paho MQTT Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"
         type="text/javascript"></script>
@@ -284,13 +329,42 @@
             });
         }, 2000);
 
-        document.addEventListener("DOMContentLoaded", connectMQTT);
+        document.addEventListener("DOMContentLoaded", () => {
+            // Programmatically generate the QR code inside the wrapper
+            const publisherUrl = import.meta.url
+                .replace(new RegExp(componentUrl.pathname + "$"), "/publisher.html");
+
+            const qrCodeContainer = document.getElementById("qrcode");
+
+            new QRCode(qrCodeContainer, {
+                text: publisherUrl,
+                width: 150,
+                height: 150,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.H
+            });
+
+            connectMQTT()
+        });
     </script>
 </head>
 
 <body>
 
     <h2>Drone-Phone System: Master Dynamic Receiver Monitoring Dashboard</h2>
+    <!-- New QR and Customizable Instructions Section -->
+    <div class="qr-section">
+        <!-- contenteditable="true" allows you to click and change the text in real-time -->
+        <div class="scan-instructions">
+            <strong>Scan Instructions:</strong><br>
+            Please scan the QR code to the right using your mobile device to simulate a drone with your phone.
+        </div>
+        <div class="qr-code-wrapper">
+            <!-- Replace the placeholder source image with your actual QR code graphic generation -->
+            <div id="qrcode"></div>
+        </div>
+    </div>
     <div class="grid" id="droneGrid"></div>
 
 </body>

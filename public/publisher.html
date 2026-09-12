@@ -18,15 +18,15 @@
     <script type="module">
         const componentUrl = new URL(import.meta.url);
         // Force the last part of the topic to explicitly match the video stream name
-        const streamName = 'mystream'; 
-        const topic = "test/mqtt/websocket/mystream"; // Changed from /123 to /mystream
+        const clientID = "pub_client_" + Math.random().toString(16).substr(2, 8);
+        const streamName = clientID; 
+        const topic = `test/mqtt/websocket/${clientID}`; // Changed from /123 to /mystream
         
         // Dynamic absolute URLs via your Caddy config blocks
         const whipEndpoint = `${componentUrl.protocol}//${componentUrl.host}/mediamtx/${streamName}/whip`;
         const mqttUrl = import.meta.url.replace(/^http/, "ws").replace(componentUrl.pathname, "/mqtt");
 
         // Generate a unique client ID
-        const clientID = "pub_client_" + Math.random().toString(16).substr(2, 8);
         const mqttClient = new Paho.Client(mqttUrl, clientID);
 
         let peerConnection;
